@@ -187,8 +187,11 @@ def sweep(prefix: str) -> None:
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL).returncode == 0
         except FileNotFoundError:
-            ok = False
-        return ip if ok or tcp_alive(ip) else None
+            # No ping program: fall back to a connection attempt. Only used
+            # then, because some firewalls refuse every address, which would
+            # make everything look alive.
+            ok = tcp_alive(ip)
+        return ip if ok else None
 
     with ThreadPoolExecutor(max_workers=32) as pool:
         up = [ip for ip in pool.map(alive, range(1, 255)) if ip]
