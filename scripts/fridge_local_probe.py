@@ -3,6 +3,7 @@
 
 Run on a machine at the same house/network as the fridge (e.g. the Home
 Assistant server):  python3 fridge_local_probe.py [fridge-ip]
+List devices on your network first:  python3 fridge_local_probe.py --sweep 192.168.0
 
 It only listens for discovery replies and makes simple read requests; it
 changes nothing. Uses only the Python standard library. Takes ~30 seconds.
@@ -162,7 +163,50 @@ def scan(ip: str) -> None:
                 continue
 
 
+def sweep(prefix: str) -> None:
+    """Ping every address in prefix.1-254 and list the ones that answer."""
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+
+    print(f"== Ping sweep of {prefix}.1-254 (about 10 s)")
+
+    def tcp_alive(ip: str) -> bool:
+        # A refused connection still proves a device is at that address.
+        try:
+            with socket.create_connection((ip, 80), timeout=0.7):
+                return True
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            return False
+
+    def alive(i: int) -> str | None:
+        ip = f"{prefix}.{i}"
+        try:
+            ok = subprocess.run(["ping", "-c", "1", "-W", "1", ip],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL).returncode == 0
+        except FileNotFoundError:
+            ok = False
+        return ip if ok or tcp_alive(ip) else None
+
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        up = [ip for ip in pool.map(alive, range(1, 255)) if ip]
+    print(f"   {len(up)} device(s) answered:")
+    for ip in up:
+        try:
+            name = socket.gethostbyaddr(ip)[0]
+        except OSError:
+            name = ""
+        print(f"      {ip:16} {name}")
+    print("\nPick the one that could be the fridge and run:")
+    print("   python3 fridge_local_probe.py <that IP>")
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--sweep":
+        sweep(sys.argv[2].rstrip("."))
+        return
     print("Family Hub local probe — read-only\n")
     ssdp_found = ssdp()
     ocf_found = ocf_discovery()
